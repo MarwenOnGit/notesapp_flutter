@@ -5,15 +5,63 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:sentiment_analyzer/config.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sentiment_analyzer/auth_page.dart';
+import 'package:sentiment_analyzer/database_helper.dart';
 import 'mood_graph.dart';
 
 void main() {
   runApp(const MoodDiaryApp());
 }
 
-class MoodDiaryApp extends StatelessWidget {
+class MoodDiaryApp extends StatefulWidget {
   const MoodDiaryApp({super.key});
+
+  @override
+  State<MoodDiaryApp> createState() => _MoodDiaryAppState();
+}
+
+class _MoodDiaryAppState extends State<MoodDiaryApp> {
+  int? _currentUserId;
+  bool _isCheckingAuth = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAuthStatus();
+  }
+
+  Future<void> _checkAuthStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getInt('userId');
+    
+    setState(() {
+      _currentUserId = userId;
+      _isCheckingAuth = false;
+    });
+  }
+
+  void _handleLogin(int userId) {
+    setState(() {
+      _currentUserId = userId;
+    });
+    
+    // Save userId to persistent storage
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setInt('userId', userId);
+    });
+  }
+
+  void _handleLogout() {
+    setState(() {
+      _currentUserId = null;
+    });
+    
+    // Clear userId from persistent storage
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.remove('userId');
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -23,51 +71,96 @@ class MoodDiaryApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: const HomePage(),
+      home: _isCheckingAuth
+          ? const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            )
+          : _currentUserId == null
+              ? AuthPage(onLoginSuccess: _handleLogin)
+              : HomePage(
+                  userId: _currentUserId!,
+                  onLogout: _handleLogout,
+                ),
     );
   }
 }
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  final int userId;
+  final VoidCallback onLogout;
+
+  const HomePage({
+    super.key,
+    required this.userId,
+    required this.onLogout,
+  });
 
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
 class _HomePageState extends State<HomePage> {
-  final List<Map<String, dynamic>> _notes = []; // Changed to dynamic to store sentiment score
+  final _dbHelper = DatabaseHelper();
+  List<Mood> _moods = [];
   bool _isAnalyzing = false;
+  bool _isLoadingMoods = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMoods();
+  }
+
+  Future<void> _loadMoods() async {
+    setState(() {
+      _isLoadingMoods = true;
+    });
+    
+    final moods = await _dbHelper.getUserMoods(widget.userId);
+    
+    setState(() {
+      _moods = moods;
+      _isLoadingMoods = false;
+    });
+  }
 
   Future<void> _addNote(String note) async {
-    // Show loading indicator
     setState(() {
       _isAnalyzing = true;
     });
 
     try {
-      // Analyze sentiment using Gemini API
       final sentimentScore = await _analyzeSentiment(note);
 
-      setState(() {
-        _notes.insert(0, {
-          'content': note,
-          'date': DateTime.now().toString().substring(0, 16),
-          'sentimentScore': sentimentScore, // Store sentiment score (0.0 to 1.0)
-        });
-      });
+      // Create mood object
+      final mood = Mood(
+        userId: widget.userId,
+        content: note,
+        sentimentScore: sentimentScore,
+        date: DateTime.now().toString().substring(0, 16),
+        createdAt: DateTime.now().toString(),
+      );
+
+      // Save to database
+      await _dbHelper.insertMood(mood);
+
+      // Reload moods
+      await _loadMoods();
     } catch (e) {
       developer.log('ERROR analyzing sentiment: $e', level: 800);
-      // If API fails, use a default neutral score
-      setState(() {
-        _notes.insert(0, {
-          'content': note,
-          'date': DateTime.now().toString().substring(0, 16),
-          'sentimentScore': 0.5, // Neutral score
-        });
-      });
       
-      // Show error message to user
+      // Save with neutral score if analysis fails
+      final mood = Mood(
+        userId: widget.userId,
+        content: note,
+        sentimentScore: 0.5,
+        date: DateTime.now().toString().substring(0, 16),
+        createdAt: DateTime.now().toString(),
+      );
+
+      await _dbHelper.insertMood(mood);
+      await _loadMoods();
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -87,7 +180,6 @@ class _HomePageState extends State<HomePage> {
   Future<double> _analyzeSentiment(String note) async {
     developer.log('Analyzing sentiment for: $note');
     
-    // Get the correct API URL based on platform
     final apiUrl = _getSentimentApiUrl();
     final uri = Uri.parse('$apiUrl/analyze');
     
@@ -111,7 +203,6 @@ class _HomePageState extends State<HomePage> {
         final responseData = jsonDecode(response.body);
         final score = responseData['score'] as double;
         developer.log('Parsed Score: $score');
-        // Ensure score is between 0.0 and 1.0
         return score.clamp(0.0, 1.0);
       } else {
         final errorMsg = 'API Error ${response.statusCode}: ${response.body}';
@@ -126,20 +217,14 @@ class _HomePageState extends State<HomePage> {
   }
 
   String _getSentimentApiUrl() {
-    // Different URLs for different platforms
     if (kIsWeb) {
-      // Web/Chrome runs on the actual machine, use localhost
       return 'http://localhost:5000';
     }
     
-    // For mobile/desktop platforms, check if Android
     if (Platform.isAndroid) {
-      // Android emulator: use your machine's local IP address
-      // Replace with your actual machine IP from flask output (e.g., 192.168.1.114)
       return 'http://192.168.1.114:5000';
     }
     
-    // iOS, macOS, Linux, Windows - use localhost
     return 'http://localhost:5000';
   }
 
@@ -168,32 +253,62 @@ class _HomePageState extends State<HomePage> {
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 8.0),
-            child: IconButton(
-              icon: Icon(
-                Icons.show_chart,
-                color: _notes.isEmpty
-                    ? Theme.of(context).colorScheme.onInverseSurface.withOpacity(0.5)
-                    : Theme.of(context).colorScheme.onInverseSurface,
-              ),
-              onPressed: _notes.isEmpty
-                  ? null
-                  : () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => MoodGraphPage(notesWithScores: _notes),
-                        ),
-                      );
-                    },
-              tooltip: 'View Mood Graph',
-              iconSize: 28,
+            child: Row(
+              children: [
+                IconButton(
+                  icon: Icon(
+                    Icons.show_chart,
+                    color: _moods.isEmpty
+                        ? Theme.of(context).colorScheme.onInverseSurface.withOpacity(0.5)
+                        : Theme.of(context).colorScheme.onInverseSurface,
+                  ),
+                  onPressed: _moods.isEmpty
+                      ? null
+                      : () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => MoodGraphPage(notesWithScores: _moods),
+                            ),
+                          );
+                        },
+                  tooltip: 'View Mood Graph',
+                  iconSize: 28,
+                ),
+                PopupMenuButton<String>(
+                  onSelected: (value) {
+                    if (value == 'logout') {
+                      widget.onLogout();
+                    }
+                  },
+                  itemBuilder: (BuildContext context) => [
+                    PopupMenuItem<String>(
+                      value: 'logout',
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.logout,
+                            color: Theme.of(context).colorScheme.onBackground,
+                          ),
+                          const SizedBox(width: 12),
+                          const Text('Logout'),
+                        ],
+                      ),
+                    ),
+                  ],
+                  icon: Icon(
+                    Icons.menu,
+                    color: Theme.of(context).colorScheme.onInverseSurface,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
       ),
-      body: _isAnalyzing && _notes.isEmpty
+      body: _isLoadingMoods
           ? const Center(child: CircularProgressIndicator())
-          : _notes.isEmpty
+          : _moods.isEmpty
               ? Center(
                   child: Padding(
                     padding: const EdgeInsets.all(24.0),
@@ -245,7 +360,6 @@ class _HomePageState extends State<HomePage> {
                 )
               : CustomScrollView(
                   slivers: [
-                    // Header with stats
                     SliverToBoxAdapter(
                       child: Padding(
                         padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -267,7 +381,7 @@ class _HomePageState extends State<HomePage> {
                                   child: _buildMiniStatCard(
                                     context,
                                     'Total',
-                                    '${_notes.length}',
+                                    '${_moods.length}',
                                     '📊',
                                   ),
                                 ),
@@ -276,8 +390,8 @@ class _HomePageState extends State<HomePage> {
                                   child: _buildMiniStatCard(
                                     context,
                                     'Average',
-                                    '${(_notes.isEmpty ? 0 : (_notes.fold<double>(0, (sum, note) => sum + (note['sentimentScore'] as double)) / _notes.length) * 100).toStringAsFixed(0)}%',
-                                    _getMoodEmojiFromScore(_notes.isEmpty ? 0.5 : _notes.fold<double>(0, (sum, note) => sum + (note['sentimentScore'] as double)) / _notes.length),
+                                    '${(_moods.isEmpty ? 0 : (_moods.fold<double>(0, (sum, mood) => sum + mood.sentimentScore) / _moods.length) * 100).toStringAsFixed(0)}%',
+                                    _getMoodEmojiFromScore(_moods.isEmpty ? 0.5 : _moods.fold<double>(0, (sum, mood) => sum + mood.sentimentScore) / _moods.length),
                                   ),
                                 ),
                               ],
@@ -286,17 +400,16 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                     ),
-                    // Notes list
                     SliverPadding(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       sliver: SliverList(
                         delegate: SliverChildBuilderDelegate(
                           (ctx, index) {
-                            final note = _notes[index];
-                            final sentimentPercent = ((note['sentimentScore'] as double) * 100).toInt();
-                            return _buildNoteCard(context, note, sentimentPercent);
+                            final mood = _moods[index];
+                            final sentimentPercent = ((mood.sentimentScore) * 100).toInt();
+                            return _buildNoteCard(context, mood, sentimentPercent);
                           },
-                          childCount: _notes.length,
+                          childCount: _moods.length,
                         ),
                       ),
                     ),
@@ -372,20 +485,20 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildNoteCard(BuildContext context, Map<String, dynamic> note, int sentimentPercent) {
-    final mood = _getMoodColor(note['sentimentScore'] as double);
+  Widget _buildNoteCard(BuildContext context, Mood mood, int sentimentPercent) {
+    final moodColor = _getMoodColor(mood.sentimentScore);
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: mood.withOpacity(0.2),
+          color: moodColor.withOpacity(0.2),
           width: 1.5,
         ),
         boxShadow: [
           BoxShadow(
-            color: mood.withOpacity(0.1),
+            color: moodColor.withOpacity(0.1),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -403,12 +516,12 @@ class _HomePageState extends State<HomePage> {
                   width: 56,
                   height: 56,
                   decoration: BoxDecoration(
-                    color: mood.withOpacity(0.15),
+                    color: moodColor.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: Center(
                     child: Text(
-                      _getMoodEmojiFromScore(note['sentimentScore'] as double),
+                      _getMoodEmojiFromScore(mood.sentimentScore),
                       style: const TextStyle(fontSize: 32),
                     ),
                   ),
@@ -419,9 +532,9 @@ class _HomePageState extends State<HomePage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        note['content']!.length > 50
-                            ? '${note['content']!.substring(0, 50)}...'
-                            : note['content']!,
+                        mood.content.length > 50
+                            ? '${mood.content.substring(0, 50)}...'
+                            : mood.content,
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
@@ -430,7 +543,7 @@ class _HomePageState extends State<HomePage> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        note['date']!,
+                        mood.date,
                         style: TextStyle(
                           fontSize: 13,
                           color: Theme.of(context).colorScheme.onBackground.withOpacity(0.6),
@@ -445,9 +558,9 @@ class _HomePageState extends State<HomePage> {
             ClipRRect(
               borderRadius: BorderRadius.circular(6),
               child: LinearProgressIndicator(
-                value: note['sentimentScore'] as double,
+                value: mood.sentimentScore,
                 backgroundColor: Theme.of(context).colorScheme.surface.withOpacity(0.3),
-                valueColor: AlwaysStoppedAnimation<Color>(mood),
+                valueColor: AlwaysStoppedAnimation<Color>(moodColor),
                 minHeight: 8,
               ),
             ),
@@ -460,21 +573,21 @@ class _HomePageState extends State<HomePage> {
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: mood,
+                    color: moodColor,
                   ),
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: mood.withOpacity(0.1),
+                    color: moodColor.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    _getMoodLabel(note['sentimentScore'] as double),
+                    _getMoodLabel(mood.sentimentScore),
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: mood,
+                      color: moodColor,
                     ),
                   ),
                 ),
@@ -488,11 +601,11 @@ class _HomePageState extends State<HomePage> {
 
   Color _getMoodColor(double sentimentScore) {
     if (sentimentScore >= 0.7) {
-      return Colors.green; // Happy
+      return Colors.green;
     } else if (sentimentScore >= 0.4) {
-      return Colors.amber; // Neutral
+      return Colors.amber;
     } else {
-      return Colors.red; // Unhappy
+      return Colors.red;
     }
   }
 
@@ -704,5 +817,10 @@ class _AddNotePageState extends State<AddNotePage> {
       ),
     );
   }
-}
 
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+}

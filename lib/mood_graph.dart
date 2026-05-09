@@ -1,14 +1,44 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:sentiment_analyzer/database_helper.dart';
 
 class MoodGraphPage extends StatelessWidget {
-  final List<Map<String, dynamic>> notesWithScores;
+  final List<Mood> notesWithScores;
 
   const MoodGraphPage({Key? key, required this.notesWithScores}) : super(key: key);
 
+  // Group moods by date and calculate daily averages
+  Map<String, double> _getGroupedMoodsByDate() {
+    final Map<String, List<double>> dailyMoods = {};
+
+    for (final mood in notesWithScores) {
+      // Extract date part (YYYY-MM-DD) from the date field
+      final dateStr = mood.date.substring(0, 10); // e.g., "2026-05-09"
+      if (!dailyMoods.containsKey(dateStr)) {
+        dailyMoods[dateStr] = [];
+      }
+      dailyMoods[dateStr]!.add(mood.sentimentScore);
+    }
+
+    // Calculate average mood per day
+    final Map<String, double> dailyAverages = {};
+    dailyMoods.forEach((date, scores) {
+      final avg = scores.reduce((a, b) => a + b) / scores.length;
+      dailyAverages[date] = avg;
+    });
+
+    // Sort by date
+    final sortedMap = Map.fromEntries(
+      dailyAverages.entries.toList()..sort((a, b) => a.key.compareTo(b.key)),
+    );
+
+    return sortedMap;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final stats = _calculateStats();
+    final dailyMoods = _getGroupedMoodsByDate();
+    final stats = _calculateStats(dailyMoods);
 
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.background,
@@ -35,387 +65,485 @@ class MoodGraphPage extends StatelessWidget {
           ? Center(
               child: Padding(
                 padding: const EdgeInsets.all(24.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Icon(
-                        Icons.show_chart,
-                        size: 80,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      'No mood data yet',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w600,
-                        color: Theme.of(context).colorScheme.onBackground,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Add some mood notes to see your insights!',
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Theme.of(context).colorScheme.onBackground.withOpacity(0.7),
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
+                child: Text(
+                  'Add some mood notes to see your insights!',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color:
+                        Theme.of(context).colorScheme.onBackground.withOpacity(0.6),
+                  ),
+                  textAlign: TextAlign.center,
                 ),
               ),
             )
-          : ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                // Statistics Cards
-                Row(
-                  children: [
-                    _buildStatCard(
-                      context,
-                      'Average Mood',
-                      '${(stats['average'] * 100).toStringAsFixed(0)}%',
-                      _getMoodEmoji(stats['average'] as double),
-                      _getMoodColor(stats['average'] as double),
-                    ),
-                    const SizedBox(width: 16),
-                    _buildStatCard(
-                      context,
-                      'Total Notes',
-                      '${notesWithScores.length}',
-                      '📝',
-                      Colors.blue,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-
-                // Mood Distribution
-                Container(
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surface,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Theme.of(context).colorScheme.shadow.withOpacity(0.1),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Mood Distribution',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.onBackground,
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      SizedBox(
-                        height: 300,
-                        child: PieChart(
-                          PieChartData(
-                            sections: _getMoodDistributionSections(stats),
-                            centerSpaceRadius: 60,
-                            sectionsSpace: 2,
+          : CustomScrollView(
+              slivers: [
+                // Statistics cards - Now showing trend-based stats
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Mood Overview',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.onBackground,
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 20),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          _buildLegendItem('Happy', Colors.green),
-                          _buildLegendItem('Neutral', Colors.yellow),
-                          _buildLegendItem('Sad', Colors.red),
-                        ],
-                      ),
-                    ],
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildStatCard(
+                                context,
+                                'Overall Average',
+                                '${(stats['overallAverage'] * 100).toStringAsFixed(0)}%',
+                                _getMoodEmojiFromScore(stats['overallAverage']),
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: _buildStatCard(
+                                context,
+                                'Days Tracked',
+                                '${dailyMoods.length}',
+                                '📅',
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildStatCard(
+                                context,
+                                'Best Day',
+                                '${(stats['bestDay'] * 100).toStringAsFixed(0)}%',
+                                '🎉',
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: _buildStatCard(
+                                context,
+                                'Trend',
+                                stats['trend'] as String,
+                                stats['trendEmoji'] as String,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                const SizedBox(height: 24),
 
-                // Line Chart
-                Container(
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surface,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Theme.of(context).colorScheme.shadow.withOpacity(0.1),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Mood Trend',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.onBackground,
+                // Main line chart - Mood over time by dates
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Your Mood Journey',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.onBackground,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 20),
-                      SizedBox(
-                        height: 250,
-                        child: LineChart(
-                          LineChartData(
-                            gridData: FlGridData(show: true, drawVerticalLine: true),
-                            titlesData: FlTitlesData(show: false),
-                            borderData: FlBorderData(show: true),
-                            lineBarsData: [
-                              LineChartBarData(
-                                spots: _getMoodTrendSpots(),
-                                isCurved: true,
-                                color: Theme.of(context).colorScheme.primary,
-                                barWidth: 3,
-                                dotData: FlDotData(show: true),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Daily average mood score over time',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Theme.of(context).colorScheme.onBackground.withOpacity(0.6),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.surface,
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Theme.of(context).colorScheme.shadow
+                                    .withOpacity(0.08),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
                               ),
                             ],
                           ),
+                          child: SizedBox(
+                            height: 350,
+                            child: LineChart(
+                              LineChartData(
+                                gridData: FlGridData(
+                                  show: true,
+                                  horizontalInterval: 0.25,
+                                  verticalInterval: 1,
+                                  drawVerticalLine: true,
+                                ),
+                                titlesData: FlTitlesData(
+                                  bottomTitles: AxisTitles(
+                                    sideTitles: SideTitles(
+                                      showTitles: true,
+                                      reservedSize: 40,
+                                      interval: (dailyMoods.length / 5).ceil().toDouble(),
+                                      getTitlesWidget: (value, meta) {
+                                        final index = value.toInt();
+                                        final dates = dailyMoods.keys.toList();
+                                        if (index < 0 || index >= dates.length) {
+                                          return const SizedBox();
+                                        }
+                                        final dateStr = dates[index];
+                                        // Show as MM-DD format
+                                        final parts = dateStr.split('-');
+                                        return Padding(
+                                          padding: const EdgeInsets.only(top: 8.0),
+                                          child: Text(
+                                            '${parts[1]}-${parts[2]}',
+                                            style: const TextStyle(fontSize: 11),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                  leftTitles: AxisTitles(
+                                    sideTitles: SideTitles(
+                                      showTitles: true,
+                                      reservedSize: 40,
+                                      interval: 0.25,
+                                      getTitlesWidget: (value, meta) {
+                                        return Text(
+                                          '${(value * 100).toInt()}%',
+                                          style: const TextStyle(fontSize: 11),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                ),
+                                borderData: FlBorderData(
+                                  show: true,
+                                  border: Border.all(
+                                    color: Theme.of(context).colorScheme.outline,
+                                    width: 1,
+                                  ),
+                                ),
+                                minY: 0,
+                                maxY: 1,
+                                lineBarsData: [
+                                  LineChartBarData(
+                                    spots: _getMoodTrendSpotsFromDaily(dailyMoods),
+                                    isCurved: true,
+                                    color: Theme.of(context).colorScheme.primary,
+                                    barWidth: 3,
+                                    belowBarData: BarAreaData(
+                                      show: true,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .primary
+                                          .withOpacity(0.1),
+                                    ),
+                                    dotData: FlDotData(
+                                      show: true,
+                                      getDotPainter:
+                                          (spot, percent, barData, index) =>
+                                              FlDotCirclePainter(
+                                        radius: 5,
+                                        color: _getMoodColorFromScore(spot.y),
+                                        strokeWidth: 2,
+                                        strokeColor: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-                const SizedBox(height: 24),
 
-                // Recent Notes List
-                Container(
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surface,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Theme.of(context).colorScheme.shadow.withOpacity(0.1),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Recent Notes',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.onBackground,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      ...notesWithScores.reversed.take(5).map(
-                            (note) => _buildNoteItem(context, note),
+                // Daily breakdown
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Daily Breakdown',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.onBackground,
                           ),
-                    ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${dailyMoods.length} days tracked',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Theme.of(context).colorScheme.onBackground.withOpacity(0.6),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (ctx, index) {
+                        final dates = dailyMoods.keys.toList();
+                        if (index >= dates.length) {
+                          return const SizedBox();
+                        }
+                        final dateStr = dates[dates.length - 1 - index]; // Reverse order (newest first)
+                        final moodScore = dailyMoods[dateStr]!;
+                        final entriesForDate = notesWithScores
+                            .where((m) => m.date.substring(0, 10) == dateStr)
+                            .toList();
+                        
+                        return _buildDailyCard(context, dateStr, moodScore, entriesForDate.length);
+                      },
+                      childCount: dailyMoods.length,
+                    ),
+                  ),
+                ),
+                const SliverToBoxAdapter(
+                  child: SizedBox(height: 20),
                 ),
               ],
             ),
     );
   }
 
-  Map<String, dynamic> _calculateStats() {
-    if (notesWithScores.isEmpty) {
-      return {'average': 0.5, 'happy': 0, 'neutral': 0, 'sad': 0};
+  Map<String, dynamic> _calculateStats(Map<String, double> dailyMoods) {
+    if (dailyMoods.isEmpty) {
+      return {
+        'overallAverage': 0.5,
+        'bestDay': 0.5,
+        'trend': 'N/A',
+        'trendEmoji': '➡️',
+      };
     }
 
-    double totalScore = 0;
-    int happy = 0;
-    int neutral = 0;
-    int sad = 0;
+    // Overall average
+    double total = 0;
+    for (final score in dailyMoods.values) {
+      total += score;
+    }
+    final overallAverage = total / dailyMoods.length;
 
-    for (var note in notesWithScores) {
-      final score = note['sentimentScore'] as double;
-      totalScore += score;
+    // Best day
+    final bestDay = dailyMoods.values.reduce((a, b) => a > b ? a : b);
 
-      if (score >= 0.7) {
-        happy++;
-      } else if (score >= 0.4) {
-        neutral++;
-      } else {
-        sad++;
+    // Calculate trend (compare last 3 days vs previous 3 days if available)
+    final dates = dailyMoods.keys.toList();
+    String trend = 'Stable 📊';
+    String trendEmoji = '📊';
+    
+    if (dates.length >= 6) {
+      final recentAvg = dailyMoods.values.toList().sublist(dates.length - 3)
+          .reduce((a, b) => a + b) / 3;
+      final previousAvg = dailyMoods.values.toList().sublist(dates.length - 6, dates.length - 3)
+          .reduce((a, b) => a + b) / 3;
+      
+      if (recentAvg > previousAvg + 0.1) {
+        trend = 'Improving 📈';
+        trendEmoji = '📈';
+      } else if (recentAvg < previousAvg - 0.1) {
+        trend = 'Declining 📉';
+        trendEmoji = '📉';
+      }
+    } else if (dates.length >= 2) {
+      final lastScore = dailyMoods.values.last;
+      final prevScore = dailyMoods.values.toList()[dates.length - 2];
+      
+      if (lastScore > prevScore + 0.1) {
+        trend = 'Improving 📈';
+        trendEmoji = '📈';
+      } else if (lastScore < prevScore - 0.1) {
+        trend = 'Declining 📉';
+        trendEmoji = '📉';
       }
     }
 
     return {
-      'average': totalScore / notesWithScores.length,
-      'happy': happy,
-      'neutral': neutral,
-      'sad': sad,
+      'overallAverage': overallAverage,
+      'bestDay': bestDay,
+      'trend': trend,
+      'trendEmoji': trendEmoji,
     };
   }
 
-  List<PieChartSectionData> _getMoodDistributionSections(Map<String, dynamic> stats) {
-    final total = notesWithScores.length;
-    return [
-      PieChartSectionData(
-        value: stats['happy'].toDouble(),
-        title: '${((stats['happy'] / total) * 100).toStringAsFixed(0)}%',
-        color: Colors.green,
-        radius: 60,
-        titleStyle: const TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.bold,
-          color: Colors.white,
-        ),
-      ),
-      PieChartSectionData(
-        value: stats['neutral'].toDouble(),
-        title: '${((stats['neutral'] / total) * 100).toStringAsFixed(0)}%',
-        color: Colors.yellow,
-        radius: 60,
-        titleStyle: const TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.bold,
-          color: Colors.black,
-        ),
-      ),
-      PieChartSectionData(
-        value: stats['sad'].toDouble(),
-        title: '${((stats['sad'] / total) * 100).toStringAsFixed(0)}%',
-        color: Colors.red,
-        radius: 60,
-        titleStyle: const TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.bold,
-          color: Colors.white,
-        ),
-      ),
-    ];
+  List<FlSpot> _getMoodTrendSpotsFromDaily(Map<String, double> dailyMoods) {
+    final spots = <FlSpot>[];
+    int index = 0;
+    for (final moodScore in dailyMoods.values) {
+      spots.add(FlSpot(index.toDouble(), moodScore));
+      index++;
+    }
+    return spots;
   }
 
-  List<FlSpot> _getMoodTrendSpots() {
-    return notesWithScores.asMap().entries.map((entry) {
-      return FlSpot(
-        entry.key.toDouble(),
-        entry.value['sentimentScore'] as double,
-      );
-    }).toList();
-  }
-
-  Widget _buildStatCard(BuildContext context, String label, String value,
-      String emoji, Color color) {
-    return Expanded(
-      child: Container(
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withOpacity(0.3), width: 1),
-        ),
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Text(
-              emoji,
-              style: const TextStyle(fontSize: 36),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context).colorScheme.onBackground.withOpacity(0.7),
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
-            ),
+  Widget _buildStatCard(
+      BuildContext context, String label, String value, String emoji) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Theme.of(context).colorScheme.primary.withOpacity(0.1),
+            Theme.of(context).colorScheme.primary.withOpacity(0.05),
           ],
         ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            emoji,
+            style: const TextStyle(fontSize: 24),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: Theme.of(context).colorScheme.onBackground.withOpacity(0.6),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildLegendItem(String label, Color color) {
-    return Row(
-      children: [
-        Container(
-          width: 12,
-          height: 12,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(3),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-        ),
-      ],
-    );
-  }
+  Widget _buildDailyCard(BuildContext context, String date, double moodScore, int entryCount) {
+    final moodColor = _getMoodColorFromScore(moodScore);
+    final emoji = _getMoodEmojiFromScore(moodScore);
+    
+    // Format date from YYYY-MM-DD to readable format
+    final parts = date.split('-');
+    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final monthName = months[int.parse(parts[1]) - 1];
+    final dayName = parts[2];
+    final displayDate = '$monthName $dayName';
 
-  Widget _buildNoteItem(BuildContext context, Map<String, dynamic> note) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: _getMoodColor(note['sentimentScore'] as double).withOpacity(0.1),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: _getMoodColor(note['sentimentScore'] as double).withOpacity(0.3),
-          ),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: moodColor.withOpacity(0.2),
+          width: 1.5,
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        boxShadow: [
+          BoxShadow(
+            color: moodColor.withOpacity(0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Text(
-                    note['content'].length > 60
-                        ? '${note['content'].substring(0, 60)}...'
-                        : note['content'],
+            // Emoji
+            Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                color: moodColor.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Center(
+                child: Text(emoji, style: const TextStyle(fontSize: 28)),
+              ),
+            ),
+            const SizedBox(width: 12),
+            // Date and entry count
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    displayDate,
                     style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
                       color: Theme.of(context).colorScheme.onBackground,
                     ),
                   ),
-                ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '$entryCount ${entryCount == 1 ? 'entry' : 'entries'}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).colorScheme.onBackground.withOpacity(0.6),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Mood score and label
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
                 Text(
-                  _getMoodEmoji(note['sentimentScore'] as double),
-                  style: const TextStyle(fontSize: 18),
+                  '${(moodScore * 100).toStringAsFixed(0)}%',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: moodColor,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: moodColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    _getMoodLabel(moodScore),
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: moodColor,
+                    ),
+                  ),
                 ),
               ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              note['date'],
-              style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context).colorScheme.onBackground.withOpacity(0.6),
-              ),
             ),
           ],
         ),
@@ -423,23 +551,33 @@ class MoodGraphPage extends StatelessWidget {
     );
   }
 
-  Color _getMoodColor(double sentimentScore) {
+  Color _getMoodColorFromScore(double sentimentScore) {
     if (sentimentScore >= 0.7) {
       return Colors.green;
     } else if (sentimentScore >= 0.4) {
-      return Colors.yellow;
+      return Colors.amber;
     } else {
       return Colors.red;
     }
   }
 
-  String _getMoodEmoji(double sentimentScore) {
+  String _getMoodEmojiFromScore(double sentimentScore) {
     if (sentimentScore >= 0.7) {
       return '😊';
     } else if (sentimentScore >= 0.4) {
       return '😐';
     } else {
       return '😞';
+    }
+  }
+
+  String _getMoodLabel(double sentimentScore) {
+    if (sentimentScore >= 0.7) {
+      return 'Happy';
+    } else if (sentimentScore >= 0.4) {
+      return 'Neutral';
+    } else {
+      return 'Sad';
     }
   }
 }
