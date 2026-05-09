@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as developer;
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:sentiment_analyzer/config.dart';
@@ -85,7 +87,9 @@ class _HomePageState extends State<HomePage> {
   Future<double> _analyzeSentiment(String note) async {
     developer.log('Analyzing sentiment for: $note');
     
-    final uri = Uri.parse('http://localhost:5000/analyze');
+    // Get the correct API URL based on platform
+    final apiUrl = _getSentimentApiUrl();
+    final uri = Uri.parse('$apiUrl/analyze');
     
     developer.log('Request URI: $uri');
     
@@ -119,6 +123,24 @@ class _HomePageState extends State<HomePage> {
     } catch (e) {
       throw Exception('Failed to analyze sentiment: $e');
     }
+  }
+
+  String _getSentimentApiUrl() {
+    // Different URLs for different platforms
+    if (kIsWeb) {
+      // Web/Chrome runs on the actual machine, use localhost
+      return 'http://localhost:5000';
+    }
+    
+    // For mobile/desktop platforms, check if Android
+    if (Platform.isAndroid) {
+      // Android emulator: use your machine's local IP address
+      // Replace with your actual machine IP from flask output (e.g., 192.168.1.114)
+      return 'http://192.168.1.114:5000';
+    }
+    
+    // iOS, macOS, Linux, Windows - use localhost
+    return 'http://localhost:5000';
   }
 
   @override
