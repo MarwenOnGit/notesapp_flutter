@@ -222,7 +222,7 @@ class _HomePageState extends State<HomePage> {
     }
     
     if (Platform.isAndroid) {
-      return 'http://192.168.1.114:5000';
+      return 'http://192.168.1.79:5000';
     }
     
     return 'http://localhost:5000';
