@@ -17,6 +17,7 @@ class _AuthPageState extends State<AuthPage> {
   bool _isLogin = true;
   bool _isLoading = false;
   String? _errorMessage;
+  String _language = 'en'; // 'en' or 'fr'
 
   Future<void> _handleAuth() async {
     setState(() {
@@ -230,6 +231,86 @@ class _AuthPageState extends State<AuthPage> {
                       color: Theme.of(context).colorScheme.primary,
                       fontSize: 14,
                     ),
+                  ),
+                ),
+                const SizedBox(height: 32),
+
+                // Language selector
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surface,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text(
+                        '🌍 Language: ',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      ElevatedButton(
+                        onPressed: _isLoading
+                            ? null
+                            : () {
+                                setState(() {
+                                  _language = 'en';
+                                });
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _language == 'en'
+                              ? Theme.of(context).colorScheme.primary
+                              : Theme.of(context).colorScheme.surface,
+                          foregroundColor: _language == 'en'
+                              ? Colors.white
+                              : Theme.of(context).colorScheme.onBackground,
+                          elevation: _language == 'en' ? 4 : 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        ),
+                        child: const Text(
+                          'English',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: _isLoading
+                            ? null
+                            : () {
+                                setState(() {
+                                  _language = 'fr';
+                                });
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _language == 'fr'
+                              ? Theme.of(context).colorScheme.primary
+                              : Theme.of(context).colorScheme.surface,
+                          foregroundColor: _language == 'fr'
+                              ? Colors.white
+                              : Theme.of(context).colorScheme.onBackground,
+                          elevation: _language == 'fr' ? 4 : 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        ),
+                        child: const Text(
+                          'Français',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],

@@ -24,11 +24,29 @@ class MoodDiaryApp extends StatefulWidget {
 class _MoodDiaryAppState extends State<MoodDiaryApp> {
   int? _currentUserId;
   bool _isCheckingAuth = true;
+  bool _isDarkMode = false;
 
   @override
   void initState() {
     super.initState();
     _checkAuthStatus();
+    _loadThemePreference();
+  }
+
+  Future<void> _loadThemePreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    final isDark = prefs.getBool('isDarkMode') ?? false;
+    setState(() {
+      _isDarkMode = isDark;
+    });
+  }
+
+  Future<void> _toggleTheme() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _isDarkMode = !_isDarkMode;
+    });
+    await prefs.setBool('isDarkMode', _isDarkMode);
   }
 
   Future<void> _checkAuthStatus() async {
@@ -68,9 +86,20 @@ class _MoodDiaryAppState extends State<MoodDiaryApp> {
     return MaterialApp(
       title: 'Mood Diary',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.deepPurple,
+          brightness: Brightness.light,
+        ),
         useMaterial3: true,
       ),
+      darkTheme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.deepPurple,
+          brightness: Brightness.dark,
+        ),
+        useMaterial3: true,
+      ),
+      themeMode: _isDarkMode ? ThemeMode.dark : ThemeMode.light,
       home: _isCheckingAuth
           ? const Scaffold(
               body: Center(child: CircularProgressIndicator()),
@@ -80,6 +109,7 @@ class _MoodDiaryAppState extends State<MoodDiaryApp> {
               : HomePage(
                   userId: _currentUserId!,
                   onLogout: _handleLogout,
+                  onThemeToggle: _toggleTheme,
                 ),
     );
   }
@@ -88,11 +118,13 @@ class _MoodDiaryAppState extends State<MoodDiaryApp> {
 class HomePage extends StatefulWidget {
   final int userId;
   final VoidCallback onLogout;
+  final VoidCallback onThemeToggle;
 
   const HomePage({
     super.key,
     required this.userId,
     required this.onLogout,
+    required this.onThemeToggle,
   });
 
   @override
@@ -222,7 +254,7 @@ class _HomePageState extends State<HomePage> {
     }
     
     if (Platform.isAndroid) {
-      return 'http://192.168.1.79:5000';
+      return 'http://192.168.1.183:5000';
     }
     
     return 'http://localhost:5000';
@@ -279,9 +311,31 @@ class _HomePageState extends State<HomePage> {
                   onSelected: (value) {
                     if (value == 'logout') {
                       widget.onLogout();
+                    } else if (value == 'theme') {
+                      widget.onThemeToggle();
                     }
                   },
                   itemBuilder: (BuildContext context) => [
+                    PopupMenuItem<String>(
+                      value: 'theme',
+                      child: Row(
+                        children: [
+                          Icon(
+                            Theme.of(context).brightness == Brightness.dark
+                                ? Icons.light_mode
+                                : Icons.dark_mode,
+                            color: Theme.of(context).colorScheme.onBackground,
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            Theme.of(context).brightness == Brightness.dark
+                                ? 'Light Mode'
+                                : 'Dark Mode',
+                          ),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuDivider(),
                     PopupMenuItem<String>(
                       value: 'logout',
                       child: Row(
@@ -792,6 +846,7 @@ class _AddNotePageState extends State<AddNotePage> {
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
+                              color: Colors.white,
                             ),
                           ),
                         ],
@@ -799,13 +854,14 @@ class _AddNotePageState extends State<AddNotePage> {
                     : const Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.check_circle_outline, size: 22),
+                          Icon(Icons.check_circle_outline, size: 22, color: Colors.white),
                           SizedBox(width: 12),
                           Text(
                             'Save Mood Entry',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
+                              color: Colors.white,
                             ),
                           ),
                         ],
