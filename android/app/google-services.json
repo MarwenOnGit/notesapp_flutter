@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "122730890002",
+    "project_id": "flutter-application-7198e",
+    "storage_bucket": "flutter-application-7198e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:122730890002:android:6098aebbca9253f84ca9cb",
+        "android_client_info": {
+          "package_name": "com.example.sentiment_analyzer"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAqyFA0kFhAcbrjqQM53VjBK5PmKpjEb5c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
